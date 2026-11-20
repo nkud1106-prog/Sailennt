@@ -26,9 +26,22 @@ __Sailennt.VIM = nil
 pcall(function() __Sailennt.VIM = game:GetService("VirtualInputManager") end)
 __Sailennt.Ui = {} -- ссылки на элементы GUI, нужные в других частях
 __Sailennt.LocalPlayer = __Sailennt.Players.LocalPlayer
-__Sailennt.Character = __Sailennt.LocalPlayer.Character or __Sailennt.LocalPlayer.CharacterAdded:Wait()
-__Sailennt.Humanoid = __Sailennt.Character:WaitForChild("Humanoid")
-__Sailennt.RootPart = __Sailennt.Character:WaitForChild("HumanoidRootPart")
+-- Ожидание персонажа с таймаутом: в играх с нестандартным спавном/персонажем запуск не должен зависать навсегда.
+-- Если тела нет, клиент всё равно стартует; ссылки обновит обработчик CharacterAdded (см. раздел ПЕРСОНАЖ).
+__Sailennt.Character = __Sailennt.LocalPlayer.Character
+do
+    local t0 = os.clock()
+    while not __Sailennt.Character and os.clock() - t0 < 8 do
+        task.wait(0.1)
+        __Sailennt.Character = __Sailennt.LocalPlayer.Character
+    end
+end
+if __Sailennt.Character then
+    __Sailennt.Humanoid = __Sailennt.Character:WaitForChild("Humanoid", 8) or __Sailennt.Character:FindFirstChildWhichIsA("Humanoid")
+    __Sailennt.RootPart = __Sailennt.Character:WaitForChild("HumanoidRootPart", 8) or __Sailennt.Character.PrimaryPart
+else
+    warn("[Sailennt] персонаж не найден за 8 секунд, запуск продолжен без него")
+end
 
 -- // CONFIGURATION
 __Sailennt.Config = {
@@ -215,9 +228,15 @@ do
         gui.ResetOnSpawn = false
         gui.IgnoreGuiInset = true
         gui.DisplayOrder = 999
-        local parent
-        pcall(function() if gethui then parent = gethui() end end)
-        gui.Parent = parent or __Sailennt.CoreGui
+        -- Цепочка родителей: gethui -> CoreGui -> PlayerGui; в части игр/executor первый вариант может не сработать
+        local placed = false
+        if gethui then placed = pcall(function() gui.Parent = gethui() end) and gui.Parent ~= nil end
+        if not placed then placed = pcall(function() gui.Parent = __Sailennt.CoreGui end) and gui.Parent ~= nil end
+        if not placed then
+            local pg = __Sailennt.LocalPlayer:FindFirstChildOfClass("PlayerGui") or __Sailennt.LocalPlayer:WaitForChild("PlayerGui", 10)
+            if pg then gui.Parent = pg end
+        end
+        if not gui.Parent then Abort("не удалось показать окно ключа: нет доступного родителя для GUI") end
         __Sailennt.Env.SailenntLicenseGui = gui
 
         local frame = Instance.new("Frame")
@@ -366,7 +385,9 @@ local function ProtectGui(g)
         if ok and g.Parent then return end
     end
     if not pcall(function() g.Parent = __Sailennt.CoreGui end) or not g.Parent then
-        g.Parent = __Sailennt.LocalPlayer:WaitForChild("PlayerGui")
+        local pg = __Sailennt.LocalPlayer:WaitForChild("PlayerGui", 10)
+        if not pg then error("[Sailennt] нет ни gethui, ни CoreGui, ни PlayerGui: интерфейс некуда поместить", 0) end
+        g.Parent = pg
     end
 end
 local function RandName(n)
